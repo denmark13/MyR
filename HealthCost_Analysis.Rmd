@@ -1,0 +1,173 @@
+---
+title: "Healthcare cost analysis - R project"
+author: "Denmark Lora"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+documentclass: article
+output:
+  html_document: 
+    number_sections: yes
+    toc: true
+    toc_depth: 4
+    toc_float: true 
+  pdf_document: default
+classoption: a4paper
+---
+# Description 
+
+### Background and Objective
+A nationwide survey of hospital costs conducted by the US Agency for Healthcare consists of hospital records of inpatient samples. The given data is restricted to the city of Wisconsin and relates to patients in the age group 0-17 years. The agency wants to analyze the data to research on healthcare costs and their utilization.
+
+### Domain 
+Healthcare
+
+### Dataset Description
+
+AGE 	     = Age of the patient discharged  
+FEMALE     = A binary variable that indicates if the patient is female  
+LOS	       = Length of stay in days  
+RACE 	     = Race of the patient (specified numerically)  
+TOTCHG	   = Hospital discharge costs   
+APRDRG	   = All Patient Refined Diagnosis Related Groups  
+
+```{r Data_ingress, include=TRUE,message=FALSE}
+
+setwd("C:/Users/lorad/Documents/Projects/Personal_R")
+
+library(readxl)
+hospitalcosts <- read_excel("1555054100_hospitalcosts.xlsx", 
+    col_types = c("numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric"))
+head(hospitalcosts)
+summary(hospitalcosts)
+
+#checkpoint1 -> finding NA values
+which(is.na(hospitalcosts), arr.ind=TRUE)
+library(dplyr)
+library(tidyr)
+hospitalcosts_NoNA <- hospitalcosts %>% mutate(across(`RACE`, ~replace_na(., round(median(., na.rm=TRUE),2))))
+# unique(hospitalcosts_NoNA$RACE)
+# which(is.na(hospitalcosts_NoNA), arr.ind=TRUE)
+```
+# Analysis to be done: 
+### 1. To record the patient statistics, the agency wants to find the age category of people who frequently visit the hospital and has the maximum expenditure.
+```{r plot1, message=FALSE}
+
+#creating age group
+hospitalcosts_NoNA_AgeGroup <- hospitalcosts_NoNA %>% mutate(age_group = case_when(AGE < 5~"<5",
+                                                                                   AGE >= 5 & AGE < 10 ~"5-9",
+                                                                                   AGE >= 10 & AGE < 15 ~"10-14",
+                                                                                   AGE >= 15  ~ ">=15"))
+# unique(hospitalcosts_NoNA_AgeGroup$age_group)
+hist(hospitalcosts_NoNA$AGE, main="Histogram of Age Group and their hospital visits",
+     xlab="Age group", border="black", col=c("light blue", "dark blue"), xlim=c(0,20), ylim=c(0,350))
+
+summary(as.factor(hospitalcosts_NoNA_AgeGroup$age_group))
+library(ggplot2)
+library(plotly)
+p1<-ggplot(hospitalcosts_NoNA_AgeGroup, aes(x=age_group, y=TOTCHG,color= age_group)) + 
+  geom_boxplot()+
+  labs(title="Plot of Hospital discharge costs per Age Group",x="Age Group", y = "Hospital Discharge Costs")
+ggplotly(p1)
+#Summary of Hospital discharge per Age Group
+tapply(hospitalcosts_NoNA_AgeGroup$TOTCHG, hospitalcosts_NoNA_AgeGroup$age_group, summary)
+
+```
+* There have been frequent visits for children aged 0 to 4, with a total of 323 records.
+* We have observed a maximum expenditure of 48,388 for an individuals above the age of 15.
+* The average expenditure is higher for individuals between the ages of 5 to 9, at 6583.
+
+### 2. In order of severity of the diagnosis and treatments and to find out the expensive treatments, the agency wants to find the diagnosis-related group that has maximum hospitalization and expenditure.
+```{r plot2, message=FALSE}
+
+hospitalcosts_NoNA_AgeGroup_factor<-hospitalcosts_NoNA_AgeGroup %>%  mutate_at(vars("APRDRG"), as.factor)
+
+meta<-hospitalcosts_NoNA_AgeGroup_factor %>% 
+  group_by(APRDRG) %>% 
+  summarise(TOTCHG = sum(TOTCHG))
+meta[which.max(meta$TOTCHG), ]
+
+meta2<-hospitalcosts_NoNA_AgeGroup_factor %>% 
+  group_by(APRDRG) %>% 
+  summarise(LOS = sum(LOS))
+meta2[which.max(meta2$LOS), ]
+```
+* The maximum expenditure among diagnosis-related group  is 640 with 437978 cost
+* Tha maximum hospitalization among diagnosis-related group is still 640 with 652
+* We conclude here that the longer length of stay the higher hospital discharge costs
+
+### 3. To make sure that there is no malpractice, the agency needs to analyze if the race of the patient is related to the hospitalization costs.
+```{r plot3, message=FALSE}
+
+hospitalcosts_racefactor<-hospitalcosts_NoNA %>%  mutate_at(vars("RACE"), as.factor)
+
+meta<-hospitalcosts_racefactor %>% 
+  group_by(RACE) %>% 
+  summarise(TOTCHG = sum(TOTCHG), LOS = sum(LOS),Visits= n())
+print(meta)
+
+#2nd approach
+
+raceInfluence=lm(TOTCHG~ RACE, data=hospitalcosts_racefactor)
+summary(raceInfluence)
+
+stayInfluence=lm(TOTCHG~ LOS, data=hospitalcosts_racefactor)
+summary(stayInfluence)
+```
+* It has been observed that there is a correlation between the length of a patient's stay in the hospital and the associated discharge costs, regardless of their race.
+* p-value = 0.94 which is higher than 0.5. We can say that race doesn’t affect the hospitalization costs 
+* p-value using length of stay is < 0.5. We can say that Lenght of stay does affect the hospitalization costs
+
+### 4. To properly utilize the costs, the agency has to analyze the severity of the hospital costs by age and gender for the proper allocation of resources.
+```{r plot4, message=FALSE}
+
+hospitalcosts_AgeGenderFactor<-hospitalcosts_NoNA_AgeGroup %>% 
+  mutate(GENDER=recode(FEMALE, '1'='FEMALE', '0'='MALE')) %>% 
+  mutate_at(vars("age_group","GENDER"), as.factor)
+  
+
+meta<-hospitalcosts_AgeGenderFactor %>% 
+  group_by(age_group,GENDER) %>% 
+  summarise(TOTCHG = sum(TOTCHG), LOS = sum(LOS))
+print(meta)
+
+AgeGenderInfluence=lm(TOTCHG~ AGE + GENDER, data=hospitalcosts_AgeGenderFactor)
+summary(AgeGenderInfluence)
+
+```
+* Since the pValues of AGE is much lesser than 0.05, the ideal statistical significance level, and it also has three stars (***) next to it, it means AGE has the most statistical significance
+* Similarly, gender is also less than 0.05.
+Hence, we can conclude that the model is statistically significant
+
+### 5. Since the length of stay is the crucial factor for inpatients, the agency wants to find if the length of stay can be predicted from age, gender, and race.
+```{r plot5, message=FALSE}
+
+hospitalcosts_AgeGenderFactor<-hospitalcosts_AgeGenderFactor %>% 
+  mutate_at(vars("RACE"), as.factor)
+  
+AgeGenderRaceInfluence=lm(LOS~ AGE + GENDER+ RACE, data=hospitalcosts_AgeGenderFactor)
+summary(AgeGenderRaceInfluence)
+
+```
+* The p-value is 0.75 which is higher than 0.05 for age, gender and race, indicating there is no linear relationship between these variables and length of stay.
+Hence, age, gender and race cannot be used to predict the length of stay of inpatients.
+
+### 6. To perform a complete analysis, the agency wants to find the variable that mainly affects hospital costs.
+```{r plot6, message=FALSE}
+
+hospitalcosts_AgeGenderFactor<-hospitalcosts_AgeGenderFactor %>% 
+  mutate_at(vars("RACE"), as.factor)
+  
+allInfluence=lm(TOTCHG~ ., data=hospitalcosts_AgeGenderFactor)
+summary(allInfluence)
+
+```
+* As it is apparent from the coefficient values, Age, Length of stay (LOS) and patient refined diagnosis related groups(APRDRG) have three stars (***) next to it. So they are the ones with statistical significance
+* Also, RACE and GENDER is the least significant. build a model after removing RACE
+
+```{r plot7, message=FALSE}
+
+# removing the variable RACE and GENDER in the model
+LOSageAPRDRGInfluence=lm(TOTCHG~ LOS+AGE+APRDRG, data=hospitalcosts_AgeGenderFactor)
+summary(LOSageAPRDRGInfluence)
+```
+* As it is apparent from the coefficient values, Age, Length of stay (LOS) and patient refined diagnosis related groups(APRDRG) have three stars (***) next to it. So they are the ones with statistical significance
